@@ -123,7 +123,7 @@ public final class Accessors {
 		}
 		propertiesCache.put(type, properties);
 	}
-
+//extractedmethod becouse of dublicate
 	private static String propertyName(String propertyName) {
 		char[] cname = propertyName.toCharArray();
 		cname[0] = Character.toLowerCase(cname[0]);

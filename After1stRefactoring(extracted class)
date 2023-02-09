@@ -1,0 +1,94 @@
+package hprose.server;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import hprose.common.HproseFilter;
+import hprose.common.HproseMethods;
+import hprose.io.HproseMode;
+import hprose.util.concurrent.Action;
+import hprose.util.concurrent.Func;
+
+public class HproseServiceData {
+	public ArrayList<HproseFilter> filters;
+	public HproseMode mode;
+	public boolean debugEnabled;
+	public int errorDelay;
+	public HproseServiceEvent event;
+	public HproseMethods globalMethods;
+	public int timeout;
+	public int heartbeat;
+	public PushEvent pushEvent;
+	public ConcurrentHashMap<String, ConcurrentHashMap<String, Topic>> allTopics;
+
+	public HproseServiceData(ArrayList<HproseFilter> filters, HproseMode mode, boolean debugEnabled, int errorDelay,
+			HproseServiceEvent event, HproseMethods globalMethods, int timeout, int heartbeat, PushEvent pushEvent,
+			ConcurrentHashMap<String, ConcurrentHashMap<String, Topic>> allTopics) {
+		this.filters = filters;
+		this.mode = mode;
+		this.debugEnabled = debugEnabled;
+		this.errorDelay = errorDelay;
+		this.event = event;
+		this.globalMethods = globalMethods;
+		this.timeout = timeout;
+		this.heartbeat = heartbeat;
+		this.pushEvent = pushEvent;
+		this.allTopics = allTopics;
+	}
+
+	Object beforeInvoke(final HproseService hproseService, final String name, final Object[] args, final ServiceContext context) {
+	    try {
+	        if (event != null) {
+	            event.onBeforeInvoke(name, args, context.isByref(), context);
+	        }
+	        return hproseService.invokeHandler.handle(name, args, context).then(new Func<ByteBuffer, Object>() {
+	            public ByteBuffer call(Object result) throws Throwable {
+	                if (result instanceof Throwable) {
+	                    throw (Throwable)result;
+	                }
+	                if (event != null) {
+	                    event.onAfterInvoke(name, args, context.isByref(), result, context);
+	                }
+	                return hproseService.doOutput(args, result, context);
+	            }
+	        }).catchError(new Func<ByteBuffer, Throwable>() {
+	            public ByteBuffer call(Throwable e) throws Throwable {
+	                return hproseService.sendError(e, context);
+	            }
+	        });
+	    }
+	    catch (Throwable e) {
+	        return hproseService.sendError(e, context);
+	    }
+	}
+
+	public final void multicast(HproseService hproseService, String topic, String[] ids, Object result, Action<String[]> callback) {
+	    if (callback == null) {
+	        hproseService.multicast(topic, ids, result);
+	        return;
+	    }
+	    int n = ids.length;
+	    List<String> sent = Collections.synchronizedList(new ArrayList<String>(n));
+	    AtomicInteger count = new AtomicInteger(n);
+	    for (int i = 0; i < n; ++i) {
+	        String id = ids[i];
+	        if (id != null) {
+	            hproseService.push(topic, id, result).then(hproseService.check(sent, id, count, callback));
+	        }
+	        else {
+	            count.decrementAndGet();
+	        }
+	    }
+	}
+
+	public HproseMethods getGlobalMethods(HproseService hproseService) {
+	    if (globalMethods == null) {
+	        globalMethods = new HproseMethods();
+	    }
+	    return globalMethods;
+	}
+}

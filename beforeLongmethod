@@ -173,67 +173,53 @@ public final class Accessors {
         }
         return fields;
     }
-
-    private static Map<String, MemberAccessor> getMembers(Type type) {
+//longmethod
+       private static Map<String, MemberAccessor> getMembers(Type type) {
         LinkedCaseInsensitiveMap<String, MemberAccessor> members = membersCache.get(type);
         if (members == null) {
             Class<?> clazz = ClassUtil.toClass(type);
             members = new LinkedCaseInsensitiveMap<String, MemberAccessor>();
             Method[] methods = clazz.getMethods();
-            newgetMembers(type, members, clazz, methods);
+            for (Method setter : methods) {
+                if (Modifier.isStatic(setter.getModifiers())) {
+                    continue;
+                }
+                String name = setter.getName();
+                if (!name.startsWith("set")) {
+                    continue;
+                }
+                Class<?> returnType = setter.getReturnType();
+                if (!returnType.equals(void.class) && !returnType.isAssignableFrom(clazz)) {
+                    continue;
+                }
+                Class<?>[] paramTypes = setter.getParameterTypes();
+                if (paramTypes.length != 1) {
+                    continue;
+                }
+                String propertyName = name.substring(3);
+                Method getter = findGetter(methods, propertyName, paramTypes[0]);
+                if (getter != null) {
+                    PropertyAccessor propertyAccessor = new PropertyAccessor(type, getter, setter);
+                    char[] cname = propertyName.toCharArray();
+                    cname[0] = Character.toLowerCase(cname[0]);
+                    propertyName = new String(cname);
+                    members.put(propertyName, propertyAccessor);
+                }
+            }
+            Field[] fs = clazz.getFields();
+            for (Field field : fs) {
+                int mod = field.getModifiers();
+                if (!Modifier.isTransient(mod) && !Modifier.isStatic(mod)) {
+                    String fieldName = field.getName();
+                    members.put(fieldName, getFieldAccessor(type, field));
+                }
+            }
+            membersCache.put(type, members);
         }
         return members;
     }
-
-	private static void newgetMembers(Type type, LinkedCaseInsensitiveMap<String, MemberAccessor> members,
-			Class<?> clazz, Method[] methods) {
-		newMembers(type, members, clazz, methods);
-		membersCache.put(type, members);
-	}
-
-	private static void newMembers(Type type, LinkedCaseInsensitiveMap<String, MemberAccessor> members, Class<?> clazz,
-			Method[] methods) throws SecurityException {
-		for (Method setter : methods) {
-			if (Modifier.isStatic(setter.getModifiers())) {
-				continue;
-			}
-			String name = setter.getName();
-			if (!name.startsWith("set")) {
-				continue;
-			}
-			Class<?> returnType = setter.getReturnType();
-			if (!returnType.equals(void.class) && !returnType.isAssignableFrom(clazz)) {
-				continue;
-			}
-			Class<?>[] paramTypes = setter.getParameterTypes();
-			if (paramTypes.length != 1) {
-				continue;
-			}
-			String propertyName = name.substring(3);
-			Method getter = findGetter(methods, propertyName, paramTypes[0]);
-			if (getter != null) {
-				PropertyAccessor propertyAccessor = new PropertyAccessor(type, getter, setter);
-				char[] cname = propertyName.toCharArray();
-				cname[0] = Character.toLowerCase(cname[0]);
-				propertyName = new String(cname);
-				members.put(propertyName, propertyAccessor);
-			}
-		}
-		Field[] fs = clazz.getFields();
-		for (Field field : fs) {
-			int mod = field.getModifiers();
-			if (!Modifier.isTransient(mod) && !Modifier.isStatic(mod)) {
-				String fieldName = field.getName();
-				members.put(fieldName, getFieldAccessor(type, field));
-			}
-		}
-	}
-/**************************************************
-η μέθοδος getProperties γραμμή 93-120 είναι πολυ μεγάλξ για αυτό από το for και μετά την σπάμε σε μία νέα μέθοδο 
-extractedMethod και παρατηρούμε ότι γενικά η method(?) αναφέρεται ισυχνά ισως μπορούμε καπως και αυτην ν τ διαχειριστούμε
-γενικά δεν θα υπάρχει μεγάλη βελτιωση μάλλον στν κώδικα
-**************************************************/
-    public final static Map<String, MemberAccessor> getMembers(Type type, HproseMode mode) {
+    
+     public final static Map<String, MemberAccessor> getMembers(Type type, HproseMode mode) {
         Class<?> clazz = ClassUtil.toClass(type);
         return ((mode != HproseMode.MemberMode) && Serializable.class.isAssignableFrom(clazz)) ?
                (mode == HproseMode.FieldMode) ?
